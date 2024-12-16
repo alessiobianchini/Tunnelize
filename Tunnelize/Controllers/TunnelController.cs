@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 
 [ApiController]
+[Route("")]
 public class TunnelController : ControllerBase
 {
     private readonly TunnelManager _tunnelManager;

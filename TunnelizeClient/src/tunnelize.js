@@ -5,7 +5,7 @@ const http = require('http');
 const https = require('https');
 const process = require('process');
 
-function connectToWebSocket() {
+function connectToWebSocket(protocol, port) {
     const url = process.env.DEV_TUNNEL_URL || 'tunnelize.azurewebsites.net';
     const ws = new WebSocket(`wss://${url}/ws`);
 
@@ -27,14 +27,14 @@ function connectToWebSocket() {
 
         if (isTunnelId(message)) {
             console.log(`
-✅ Tunnel ID received: ${message}. 
+✅ Tunnel ID received: ${message}
 You can use now https://${url}/${message}`
             );
         } else {
             try {
                 const requestData = JSON.parse(message);
-                console.log('[INFO] Message received:', message);
-                forwardRequestToLocalServer(requestData);
+                console.log('[INFO] Message received.');
+                forwardRequestToLocalServer(requestData, protocol, port);
             } catch (error) {
                 console.error('[ERROR] Failed to parse message as JSON:', error.message);
             }
@@ -42,12 +42,12 @@ You can use now https://${url}/${message}`
     });
 }
 
-function forwardRequestToLocalServer(requestData) {
+function forwardRequestToLocalServer(requestData, inputProtocol, inputPort) {
     const path = encodeURI(requestData.Route + requestData.QueryString);
-    const protocol = requestData.Protocol && requestData.Protocol.toLowerCase() === 'http' ? http : https;
+    const protocol = inputProtocol && inputProtocol.toLowerCase() === 'http' ? http : https;
     const options = {
         hostname: 'localhost',
-        port: requestData.Port || 8080,
+        port: inputPort || 8080,
         method: requestData.Method,
         headers: requestData.Headers,
         timeout: 30000,
@@ -97,8 +97,7 @@ function isTunnelId(message) {
 }
 
 function startTunnelize(protocol, port) {
-    const hostname = `${protocol}://localhost`;
-    connectToWebSocket(hostname, port);
+    connectToWebSocket(protocol, port);
 }
 
 function showHelp() {
