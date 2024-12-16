@@ -24,6 +24,10 @@ jobs:
       - name: Install dependencies
         working-directory: ./TunnelizeClient
         run: npm install
+
+      - name: Update package version
+        working-directory: ./TunnelizeClient
+        run: npm version minor
       
       - name: Minify project files
         working-directory: ./TunnelizeClient

@@ -28,7 +28,7 @@ function connectToWebSocket(protocol, port) {
         if (isTunnelId(message)) {
             console.log(`
 ✅ Tunnel ID received: ${message}
-You can use now https://${url}/${message}`
+You can use now https://${url}/${message}/*?param=abc`
             );
         } else {
             try {
@@ -51,7 +51,8 @@ function forwardRequestToLocalServer(requestData, inputProtocol, inputPort) {
         method: requestData.Method,
         headers: requestData.Headers,
         timeout: 30000,
-        path: path
+        path: path,
+        rejectUnauthorized: false
     };
 
     const req = protocol.request(options, (res) => {
