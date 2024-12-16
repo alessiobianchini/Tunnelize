@@ -1,8 +1,9 @@
 {
 	"name": "tunnelize",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "A tool to create a WebSocket tunnel for forwarding HTTP requests to a local server",
 	"main": "bin/tunnelize.js",
+	"readme": "README.md",
 	"bin": {
 	  "tunnelize": "./bin/tunnelize.js"
 	},

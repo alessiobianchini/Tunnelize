@@ -5,10 +5,8 @@ const http = require('http');
 const https = require('https');
 const process = require('process');
 
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
 function connectToWebSocket() {
-    const url = process.env.DEV_TUNNEL_URL;
+    const url = process.env.DEV_TUNNEL_URL || 'tunnelize.azurewebsites.net';
     const ws = new WebSocket(`wss://${url}/ws`);
 
     ws.on('open', () => {
@@ -28,7 +26,10 @@ function connectToWebSocket() {
         const message = data.toString('utf8');
 
         if (isTunnelId(message)) {
-            console.log(`✅ Tunnel ID received: ${message}`);
+            console.log(`
+✅ Tunnel ID received: ${message}. 
+You can use now https://${url}/${message}`
+            );
         } else {
             try {
                 const requestData = JSON.parse(message);
@@ -46,7 +47,7 @@ function forwardRequestToLocalServer(requestData) {
     const protocol = requestData.Protocol && requestData.Protocol.toLowerCase() === 'http' ? http : https;
     const options = {
         hostname: 'localhost',
-        port: requestData.Port || 58275,
+        port: requestData.Port || 8080,
         method: requestData.Method,
         headers: requestData.Headers,
         timeout: 30000,
@@ -106,10 +107,10 @@ Usage: tunnelize <protocol> <port>
 
 Options:
   protocol  Either "http" or "https" (default is http)
-  port      The port number to connect to on localhost (default is 58275)
+  port      The port number to connect to on localhost (default is 8080)
 
 Examples:
-  tunnelize http 58275
+  tunnelize http 8080
   tunnelize https 443
 
 `);
