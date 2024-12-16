@@ -25,9 +25,15 @@ jobs:
         working-directory: ./TunnelizeClient
         run: npm install
 
-      - name: Update package version
-        working-directory: ./TunnelizeClient
-        run: npm version minor
+      - name: Bump patch version
+        working-directory: ./DevTunnelClient
+        run: |
+          npm version patch --no-git-tag-version
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json
+          git commit -m "🔄 Bump patch version"
+          git push origin HEAD:main
       
       - name: Minify project files
         working-directory: ./TunnelizeClient
