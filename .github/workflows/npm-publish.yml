@@ -26,8 +26,13 @@ jobs:
         run: npm install
 
       - name: Bump patch version
-        working-directory: ./DevTunnelClient
         run: |
+          if [ ! -d "./DevTunnelClient" ]; then
+            echo "Directory ./DevTunnelClient not found. Listing current directories:"
+            ls -la
+            exit 1
+          fi
+          cd ./DevTunnelClient
           npm version patch --no-git-tag-version
           git config --global user.name 'github-actions[bot]'
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
