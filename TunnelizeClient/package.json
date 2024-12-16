@@ -1,22 +1,27 @@
 {
 	"name": "tunnelize",
-	"version": "1.1.0",
+	"version": "1.1.1",
 	"description": "A tool to create a WebSocket tunnel for forwarding HTTP requests to a local server",
 	"main": "bin/tunnelize.js",
 	"readme": "README.md",
 	"bin": {
-	  "tunnelize": "./bin/tunnelize.js"
+		"tunnelize": "./bin/tunnelize.js"
 	},
 	"scripts": {
 		"start": "node ./src/tunnelize.js"
 	},
-	"keywords": ["tunnel", "websocket", "proxy", "local-server"],
+	"keywords": [
+		"tunnel",
+		"websocket",
+		"proxy",
+		"local-server"
+	],
 	"author": "Alessio Bianchini <alessio.bianchini@doit.it> (https://github.com/alessiobianchini)",
 	"license": "MIT",
 	"dependencies": {
-	  "ws": "^8.13.0"
+		"ws": "^8.13.0"
 	},
 	"devDependencies": {
-	  "terser": "^5.37.0"
+		"terser": "^5.37.0"
 	}
-  }
+}
