@@ -10,6 +10,9 @@ jobs:
   publish-npm:
     runs-on: ubuntu-latest
     environment: VARIABLES
+    permissions:
+      contents: write
+      packages: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
