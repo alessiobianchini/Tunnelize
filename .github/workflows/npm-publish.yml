@@ -27,12 +27,12 @@ jobs:
 
       - name: Bump patch version
         run: |
-          if [ ! -d "./DevTunnelClient" ]; then
+          if [ ! -d "./TunnelizeClient" ]; then
             echo "Directory ./DevTunnelClient not found. Listing current directories:"
             ls -la
             exit 1
           fi
-          cd ./DevTunnelClient
+          cd ./TunnelizeClient
           npm version patch --no-git-tag-version
           git config --global user.name 'github-actions[bot]'
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
