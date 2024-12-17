@@ -4,9 +4,12 @@ const WebSocket = require('ws');
 const http = require('http');
 const https = require('https');
 const process = require('process');
+const zlib = require('zlib');
+
+process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 
 function connectToWebSocket(protocol, port) {
-    const url = process.env.DEV_TUNNEL_URL || 'tunnelize.azurewebsites.net';
+    const url = process.env.DEV_TUNNEL_URL || 'localhost:7019';
     const ws = new WebSocket(`wss://${url}/ws`);
 
     ws.on('open', () => {
@@ -15,7 +18,7 @@ function connectToWebSocket(protocol, port) {
 
     ws.on('close', () => {
         console.log('[INFO] Connection closed, retrying in 5 seconds');
-        setTimeout(connectToWebSocket, 5000);
+        setTimeout(() => connectToWebSocket(protocol, port), 5000);
     });
 
     ws.on('error', (error) => {
@@ -26,70 +29,86 @@ function connectToWebSocket(protocol, port) {
         const message = data.toString('utf8');
 
         if (isTunnelId(message)) {
-            console.log(`
-✅ Tunnel ID received: ${message}
-You can use now https://${url}/${message}/*?param=abc`
-            );
+            console.log(`\n✅ Tunnel ID received: ${message}\nYou can use now https://${url}/${message}/*?param=abc`);
         } else {
             try {
                 const requestData = JSON.parse(message);
                 console.log('[INFO] Message received.');
-                forwardRequestToLocalServer(requestData, protocol, port);
+                forwardRequestToLocalServer(requestData, protocol, port)
+                    .then(response => {
+                        console.log('[INFO] Sending response back to proxy...');
+                        ws.send(JSON.stringify(response), { fin: true });
+                    })
+                    .catch(error => {
+                        console.error('[ERROR] Forward request failed:', error);
+                        ws.send(JSON.stringify(error), { fin: true });
+                        console.log('[DEBUG] Error sent back to proxy:', JSON.stringify(error));
+                    });
             } catch (error) {
-                console.error('[ERROR] Failed to parse message as JSON:', error.message);
+                console.error('[FATAL ERROR] Unexpected exception:', error.message);
+                ws.send(JSON.stringify({ statusCode: 500, message: error.message }));
             }
         }
     });
 }
 
 function forwardRequestToLocalServer(requestData, inputProtocol, inputPort) {
-    const path = encodeURI(requestData.Route + requestData.QueryString);
-    const protocol = inputProtocol && inputProtocol.toLowerCase() === 'http' ? http : https;
-    const options = {
-        hostname: 'localhost',
-        port: inputPort || 8080,
-        method: requestData.Method,
-        headers: requestData.Headers,
-        timeout: 30000,
-        path: path,
-        rejectUnauthorized: false
-    };
+    return new Promise((resolve, reject) => {
+        const path = encodeURI(requestData.Route + requestData.QueryString);
+        const protocol = inputProtocol && inputProtocol.toLowerCase() === 'http' ? http : https;
+        const options = {
+            hostname: 'localhost',
+            port: inputPort || 8080,
+            method: requestData.Method,
+            headers: requestData.Headers,
+            timeout: 30000,
+            path: path,
+            rejectUnauthorized: false
+        };
 
-    const req = protocol.request(options, (res) => {
-        console.log(`[INFO] Status Code: ${res.statusCode}`);
+        const req = protocol.request(options, (res) => {
+            console.log(`[INFO] Status Code: ${res.statusCode}`);
+            console.log(`[DEBUG] Content-Encoding: ${res.headers['content-encoding'] || 'none'}`);
 
-        let responseData = '';
-        res.setEncoding('utf8');
+            let responseData = [];
+            res.on('data', (chunk) => {
+                responseData.push(chunk);
+            });
 
-        res.on('data', (chunk) => {
-            responseData += chunk;
+            res.on('end', () => {
+                responseData = Buffer.concat(responseData);
+                const contentEncoding = res.headers['content-encoding'];
+
+                if (contentEncoding === 'br') {
+                    zlib.brotliDecompress(responseData, (err, decompressed) => {
+                        if (err) {
+                            console.error('[ERROR] Brotli decompression failed:', err);
+                            return reject({ statusCode: 500, message: 'Brotli decompression failed' });
+                        }
+                        handleDecodedResponse(res.statusCode, decompressed.toString(), resolve, reject);
+                    });
+                } else {
+                    handleDecodedResponse(res.statusCode, responseData.toString(), resolve, reject);
+                }
+            });
+
+            res.on('error', (e) => {
+                console.error(`[ERROR] Response stream error: ${e.message}`);
+                reject({ statusCode: 500, message: e.message });
+            });
         });
 
-        res.on('end', () => {
-            console.log(`[INFO] Full response: ${responseData}`);
-
-            if (res.statusCode === 404) {
-                console.error('[ERROR] Resource not found (404)');
-            } else if (res.statusCode >= 400) {
-                console.error(`[ERROR] HTTP error: ${res.statusCode}, Body: ${responseData}`);
-            } else {
-                console.log(`[INFO] Request successful with status code: ${res.statusCode}`);
-            }
+        req.on('error', (e) => {
+            console.error(`[ERROR] Request error: ${e.message}`);
+            reject({ statusCode: 500, message: e.message });
         });
 
-        res.on('error', (e) => {
-            console.error(`[ERROR] Response stream error: ${e.message}`);
-        });
+        if (requestData.Method === 'POST' && requestData.Body) {
+            req.write(requestData.Body);
+        }
+
+        req.end();
     });
-
-    req.on('error', (e) => {
-        console.error(`[ERROR] Request error: ${e.message}`);
-    });
-
-    if (requestData.Method === 'POST' && requestData.Body) {
-        req.write(requestData.Body);
-    }
-    req.end();
 }
 
 function isTunnelId(message) {
@@ -102,18 +121,7 @@ function startTunnelize(protocol, port) {
 }
 
 function showHelp() {
-    console.log(`
-Usage: tunnelize <protocol> <port>
-
-Options:
-  protocol  Either "http" or "https" (default is http)
-  port      The port number to connect to on localhost (default is 8080)
-
-Examples:
-  tunnelize http 8080
-  tunnelize https 443
-
-`);
+    console.log(`\nUsage: tunnelize <protocol> <port>\n\nOptions:\n  protocol  Either "http" or "https" (default is http)\n  port      The port number to connect to on localhost (default is 8080)\n\nExamples:\n  tunnelize http 8080\n  tunnelize https 443\n`);
 }
 
 module.exports = { startTunnelize };
@@ -141,4 +149,24 @@ if (require.main === module) {
 
     console.log(`[INFO] Starting tunnelize with protocol: ${protocol} and port: ${port}`);
     startTunnelize(protocol, port);
+}
+
+function handleDecodedResponse(statusCode, body, resolve, reject) {
+    console.log(`[DEBUG] Decoded response: ${body}`);
+
+    const response = {
+        statusCode: statusCode,
+        body: body
+    };
+
+    if (statusCode === 404) {
+        console.error('[ERROR] Resource not found (404)');
+        reject(response);
+    } else if (statusCode >= 400) {
+        console.error(`[ERROR] HTTP error: ${statusCode}, Body: ${body}`);
+        reject(response);
+    } else {
+        console.log(`[INFO] Request successful with status code: ${statusCode}`);
+        resolve(response);
+    }
 }
