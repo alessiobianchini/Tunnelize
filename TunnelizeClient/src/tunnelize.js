@@ -5,9 +5,10 @@ const http = require('http');
 const https = require('https');
 const process = require('process');
 const zlib = require('zlib');
+const pjson = require('../package.json');
 
 //Local development
-process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
+//process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 
 function connectToWebSocket(protocol, port, tunnelId = null) {
     const url = process.env.DEV_TUNNEL_URL || 'tunnelize.azurewebsites.net';
@@ -132,6 +133,10 @@ if (require.main === module) {
 
     if (args.length === 1 && args[0] === 'help') {
         showHelp();
+        process.exit(0);
+    }
+    if (args.length === 1 && args[0] === 'version') {
+        console.log(`Tunnelize version: ${pjson.version}`);
         process.exit(0);
     }
 
