@@ -14,19 +14,10 @@ public class TunnelManager
             _tunnels[tunnelId] = webSocket;
         }
 
-        var buffer = new byte[1024 * 4];
-
         try
         {
             while (webSocket.State == WebSocketState.Open)
             {
-                var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-                if (result.MessageType == WebSocketMessageType.Close)
-                {
-                    Console.WriteLine($"[INFO] Tunnel {tunnelId} closed.");
-                    await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closure", CancellationToken.None);
-                    break;
-                }
             }
         }
         catch (Exception ex)
@@ -55,4 +46,50 @@ public class TunnelManager
 
         await webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
     }
+
+    public async Task<string> ForwardRequestToWSClient(string tunnelId, string message)
+    {
+        if (!_tunnels.ContainsKey(tunnelId))
+        {
+            throw new Exception($"Tunnel {tunnelId} not found.");
+        }
+
+        var webSocket = _tunnels[tunnelId];
+        var buffer = Encoding.UTF8.GetBytes(message);
+
+        await webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
+
+        var responseBuffer = new byte[1024 * 1024 * 5];
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60)); 
+        var completeResponse = new List<byte>(); 
+
+        try
+        {
+            while (true)
+            {
+                var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(responseBuffer), cts.Token);
+
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Client closed connection", CancellationToken.None);
+                    throw new Exception($"WebSocket connection closed by client for tunnel {tunnelId}");
+                }
+
+                completeResponse.AddRange(responseBuffer.Take(result.Count));
+
+                if (result.EndOfMessage)
+                {
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw new Exception("Timeout while waiting for response from WebSocket client.");
+        }
+
+        var jsonResponse = Encoding.UTF8.GetString(completeResponse.ToArray());
+        return jsonResponse;
+    }
+
 }

@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json.Serialization;
+using System.Xml.Linq;
 
 [ApiController]
 [Route("")]
@@ -38,7 +40,7 @@ public class TunnelController : ControllerBase
     {
         var method = HttpContext.Request.Method;
         var queryString = HttpContext.Request.QueryString;
-        
+
         string requestBody = string.Empty;
         if (method == "POST")
         {
@@ -47,24 +49,52 @@ public class TunnelController : ControllerBase
         }
 
         var headers = GetAllHeaders(HttpContext.Request.Headers);
-        var authHeader = HttpContext.Request.Headers["Authorization"].ToString();
 
         var requestData = new
         {
             Method = method,
             QueryString = queryString.ToString(),
             Body = requestBody,
-            Authorization = authHeader,
             Headers = headers,
             Route = $"/{routes}"
         };
 
         var message = System.Text.Json.JsonSerializer.Serialize(requestData);
 
-        await _tunnelManager.ForwardRequestToClient(tunnelId, message);
+        try
+        {
+            var wsResponse = await _tunnelManager.ForwardRequestToWSClient(tunnelId, message);
 
-        return Ok(new { message = "Request forwarded to the local client" });
+            if (string.IsNullOrWhiteSpace(wsResponse))
+            {
+                return StatusCode(502, new { message = "No response received from WebSocket client." });
+            }
+
+            if (IsJson(wsResponse))
+            {
+                var response = System.Text.Json.JsonSerializer.Deserialize<ResponseModel>(wsResponse);
+                return StatusCode(response.StatusCode, response.Body);
+            }
+            else if (IsXml(wsResponse))
+            {
+                var xmlBody = FormatXml(wsResponse);
+                return Content(xmlBody, "application/xml");
+            }
+            else
+            {
+                return StatusCode(502, new { message = "Unknown response format received from WebSocket client." });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return StatusCode(504, new { message = "Gateway Timeout", error = "Timeout while waiting for response from WebSocket client." });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = "Error forwarding request", error = ex.Message });
+        }
     }
+
 
     private Dictionary<string, string> GetAllHeaders(IHeaderDictionary headers)
     {
@@ -76,5 +106,38 @@ public class TunnelController : ControllerBase
         }
 
         return requestHeaders;
+    }
+
+    private bool IsJson(string input)
+    {
+        input = input.Trim();
+        return input.StartsWith("{") || input.StartsWith("[");
+    }
+
+    private bool IsXml(string input)
+    {
+        try
+        {
+            XDocument.Parse(input);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private string FormatXml(string input)
+    {
+        var doc = XDocument.Parse(input);
+        return doc.ToString();
+    }
+
+    public class ResponseModel
+    {
+        [JsonPropertyName("statusCode")]
+        public int StatusCode { get; set; }
+        [JsonPropertyName("body")]
+        public string Body { get; set; }
     }
 }
