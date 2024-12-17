@@ -6,11 +6,14 @@ const https = require('https');
 const process = require('process');
 const zlib = require('zlib');
 
+//Local development
 process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 
-function connectToWebSocket(protocol, port) {
-    const url = process.env.DEV_TUNNEL_URL || 'localhost:7019';
-    const ws = new WebSocket(`wss://${url}/ws`);
+function connectToWebSocket(protocol, port, tunnelId = null) {
+    const url = process.env.DEV_TUNNEL_URL || 'tunnelize.azurewebsites.net';
+    const MAX_BUFFER_SIZE = 1024 * 1024 * 5;
+    let wssUrl = !!tunnelId ? `wss://${url}/ws/${tunnelId}` : `wss://${url}/ws`;
+    const ws = new WebSocket(wssUrl, {maxPayload: MAX_BUFFER_SIZE});
 
     ws.on('open', () => {
         console.log('[INFO] Connection established with the proxy');
@@ -36,13 +39,12 @@ function connectToWebSocket(protocol, port) {
                 console.log('[INFO] Message received.');
                 forwardRequestToLocalServer(requestData, protocol, port)
                     .then(response => {
-                        console.log('[INFO] Sending response back to proxy...');
+                        console.log(`[DEBUG] Sending back response...`);
                         ws.send(JSON.stringify(response), { fin: true });
                     })
                     .catch(error => {
                         console.error('[ERROR] Forward request failed:', error);
                         ws.send(JSON.stringify(error), { fin: true });
-                        console.log('[DEBUG] Error sent back to proxy:', JSON.stringify(error));
                     });
             } catch (error) {
                 console.error('[FATAL ERROR] Unexpected exception:', error.message);
@@ -68,8 +70,7 @@ function forwardRequestToLocalServer(requestData, inputProtocol, inputPort) {
 
         const req = protocol.request(options, (res) => {
             console.log(`[INFO] Status Code: ${res.statusCode}`);
-            console.log(`[DEBUG] Content-Encoding: ${res.headers['content-encoding'] || 'none'}`);
-
+            
             let responseData = [];
             res.on('data', (chunk) => {
                 responseData.push(chunk);

@@ -14,19 +14,10 @@ public class TunnelManager
             _tunnels[tunnelId] = webSocket;
         }
 
-        var buffer = new byte[1024 * 4];
-
         try
         {
             while (webSocket.State == WebSocketState.Open)
             {
-                var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-                if (result.MessageType == WebSocketMessageType.Close)
-                {
-                    Console.WriteLine($"[INFO] Tunnel {tunnelId} closed.");
-                    await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closure", CancellationToken.None);
-                    break;
-                }
             }
         }
         catch (Exception ex)
@@ -64,21 +55,19 @@ public class TunnelManager
         }
 
         var webSocket = _tunnels[tunnelId];
-        var sendBuffer = Encoding.UTF8.GetBytes(message);
+        var buffer = Encoding.UTF8.GetBytes(message);
 
-        await webSocket.SendAsync(new ArraySegment<byte>(sendBuffer), WebSocketMessageType.Text, true, CancellationToken.None);
+        await webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
 
-        var responseBuffer = new byte[1024 * 4];
-        var receivedData = new StringBuilder();
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var responseBuffer = new byte[1024 * 1024 * 5];
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60)); 
+        var completeResponse = new List<byte>(); 
 
         try
         {
-            WebSocketReceiveResult result;
-
-            do
+            while (true)
             {
-                result = await webSocket.ReceiveAsync(new ArraySegment<byte>(responseBuffer), cts.Token);
+                var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(responseBuffer), cts.Token);
 
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
@@ -86,16 +75,21 @@ public class TunnelManager
                     throw new Exception($"WebSocket connection closed by client for tunnel {tunnelId}");
                 }
 
-                var chunk = Encoding.UTF8.GetString(responseBuffer, 0, result.Count);
-                receivedData.Append(chunk);
+                completeResponse.AddRange(responseBuffer.Take(result.Count));
 
-            } while (!result.EndOfMessage);
+                if (result.EndOfMessage)
+                {
+                    break;
+                }
+            }
         }
         catch (OperationCanceledException)
         {
             throw new Exception("Timeout while waiting for response from WebSocket client.");
         }
 
-        return receivedData.ToString();
+        var jsonResponse = Encoding.UTF8.GetString(completeResponse.ToArray());
+        return jsonResponse;
     }
+
 }
