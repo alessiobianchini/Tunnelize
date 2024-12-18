@@ -38,6 +38,7 @@ jobs:
           echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_ENV
 
       - name: Increment Version
+        working-directory: ./TunnelizeClient
         run: |
           NEW_VERSION=$(echo $LATEST_VERSION | awk -F. -v OFS=. '{$NF++; print}')
           echo "New version: $NEW_VERSION"
