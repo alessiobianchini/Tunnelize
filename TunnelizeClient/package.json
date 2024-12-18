@@ -1,6 +1,6 @@
 {
 	"name": "tunnelize",
-	"version": "2.0.2",
+	"version": "1.0.1",
 	"description": "A tool to create a WebSocket tunnel for forwarding HTTP requests to a local server",
 	"main": "bin/tunnelize.js",
 	"readme": "README.md",
@@ -8,6 +8,7 @@
 		"tunnelize": "./bin/tunnelize.js"
 	},
 	"scripts": {
+		"version-patch": "npm version patch --no-git-tag-version",
 		"start": "node ./src/tunnelize.js"
 	},
 	"keywords": [

@@ -24,25 +24,26 @@ jobs:
           registry-url: https://registry.npmjs.org/
           always-auth: true
 
+      - name: Log in to NPM
+        run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+
       - name: Install dependencies
         working-directory: ./TunnelizeClient
         run: npm install
 
-      - name: Bump patch version
+      - name: Get Latest Version
         run: |
-          if [ ! -d "./TunnelizeClient" ]; then
-            echo "Directory ./DevTunnelClient not found. Listing current directories:"
-            ls -la
-            exit 1
-          fi
-          cd ./TunnelizeClient
-          npm version patch --no-git-tag-version
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add package.json
-          git commit -m "🔄 Bump patch version"
-          git push origin HEAD:main
-      
+          LATEST_VERSION=$(npm show tunnelize version)
+          echo "Latest version: $LATEST_VERSION"
+          echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_ENV
+
+      - name: Increment Version
+        run: |
+          NEW_VERSION=$(echo $LATEST_VERSION | awk -F. -v OFS=. '{$NF++; print}')
+          echo "New version: $NEW_VERSION"
+          npm version $NEW_VERSION --no-git-tag-version
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+
       - name: Minify project files
         working-directory: ./TunnelizeClient
         run: npx terser ./src/tunnelize.js --output ./bin/tunnelize.js --compress --mangle
