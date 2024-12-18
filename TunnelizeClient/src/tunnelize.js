@@ -118,8 +118,8 @@ function isTunnelId(message) {
     return tunnelIdPattern.test(message);
 }
 
-function startTunnelize(protocol, port) {
-    connectToWebSocket(protocol, port);
+function startTunnelize(protocol, port, tunnelId) {
+    connectToWebSocket(protocol, port, tunnelId);
 }
 
 function showHelp() {
@@ -146,7 +146,7 @@ if (require.main === module) {
         process.exit(1);
     }
 
-    const [protocol, port] = args;
+    const [protocol, port, tunnelId] = args;
 
     if (!['http', 'https'].includes(protocol)) {
         console.error('[ERROR] Protocol must be either "http" or "https"');
@@ -154,7 +154,7 @@ if (require.main === module) {
     }
 
     console.log(`[INFO] Starting tunnelize with protocol: ${protocol} and port: ${port}`);
-    startTunnelize(protocol, port);
+    startTunnelize(protocol, port, tunnelId);
 }
 
 function handleDecodedResponse(statusCode, body, resolve, reject) {
