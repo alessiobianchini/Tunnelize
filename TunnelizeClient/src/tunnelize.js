@@ -22,7 +22,7 @@ function connectToWebSocket(protocol, port, tunnelId = null) {
 
     ws.on('close', () => {
         console.log('[INFO] Connection closed, retrying in 5 seconds');
-        setTimeout(() => connectToWebSocket(protocol, port), 5000);
+        setTimeout(() => connectToWebSocket(protocol, port, tunnelId), 5000);
     });
 
     ws.on('error', (error) => {
