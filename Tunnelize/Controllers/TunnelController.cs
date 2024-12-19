@@ -7,7 +7,7 @@ using System.Xml.Linq;
 public class TunnelController : ControllerBase
 {
     private readonly TunnelManager _tunnelManager;
-    
+
     public TunnelController(TunnelManager tunnelManager)
     {
         _tunnelManager = tunnelManager;
@@ -71,23 +71,17 @@ public class TunnelController : ControllerBase
             }
 
             var responseModel = System.Text.Json.JsonSerializer.Deserialize<ResponseModel>(wsResponse);
-            Response.Headers.Add("Content-Type", responseModel.ContentType ?? "application/json");
-            return StatusCode(responseModel.StatusCode, responseModel.Body);
+            
+            if (responseModel.StatusCode == 200)
+            {
+                Response.Headers.TryAdd("Content-Type", responseModel.ContentType ?? "application/json");
+                return Content(responseModel.Body, HttpContext.Response.ContentType);
 
-            //if (IsJson(wsResponse))
-            //{
-            //    var response = System.Text.Json.JsonSerializer.Deserialize<ResponseModel>(wsResponse);
-            //    return StatusCode(response.StatusCode, response.Body);
-            //}
-            //else if (IsXml(wsResponse))
-            //{
-            //    var xmlBody = FormatXml(wsResponse);
-            //    return Content(xmlBody, "application/xml");
-            //}
-            //else
-            //{
-            //    return StatusCode(502, new { message = "Unknown response format received from WebSocket client." });
-            //}
+            }
+            else
+            {
+                return StatusCode(responseModel.StatusCode, responseModel.Body);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -110,31 +104,6 @@ public class TunnelController : ControllerBase
         }
 
         return requestHeaders;
-    }
-
-    private bool IsJson(string input)
-    {
-        input = input.Trim();
-        return input.StartsWith("{") || input.StartsWith("[");
-    }
-
-    private bool IsXml(string input)
-    {
-        try
-        {
-            XDocument.Parse(input);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private string FormatXml(string input)
-    {
-        var doc = XDocument.Parse(input);
-        return doc.ToString();
     }
 
     public class ResponseModel
