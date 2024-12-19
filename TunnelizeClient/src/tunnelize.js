@@ -14,7 +14,7 @@ function connectToWebSocket(protocol, port, tunnelId = null) {
     const url = process.env.DEV_TUNNEL_URL || 'tunnelize.azurewebsites.net';
     const MAX_BUFFER_SIZE = 1024 * 1024 * 5;
     let wssUrl = !!tunnelId ? `wss://${url}/ws/${tunnelId}` : `wss://${url}/ws`;
-    const ws = new WebSocket(wssUrl, {maxPayload: MAX_BUFFER_SIZE});
+    const ws = new WebSocket(wssUrl, { maxPayload: MAX_BUFFER_SIZE });
 
     ws.on('open', () => {
         console.log('[INFO] Connection established with the proxy');
@@ -40,7 +40,6 @@ function connectToWebSocket(protocol, port, tunnelId = null) {
                 console.log('[INFO] Message received.');
                 forwardRequestToLocalServer(requestData, protocol, port)
                     .then(response => {
-                        console.log(`[DEBUG] Sending back response...`);
                         ws.send(JSON.stringify(response), { fin: true });
                     })
                     .catch(error => {
@@ -71,7 +70,7 @@ function forwardRequestToLocalServer(requestData, inputProtocol, inputPort) {
 
         const req = protocol.request(options, (res) => {
             console.log(`[INFO] Status Code: ${res.statusCode}`);
-            
+
             let responseData = [];
             res.on('data', (chunk) => {
                 responseData.push(chunk);
@@ -80,6 +79,7 @@ function forwardRequestToLocalServer(requestData, inputProtocol, inputPort) {
             res.on('end', () => {
                 responseData = Buffer.concat(responseData);
                 const contentEncoding = res.headers['content-encoding'];
+                const contentType = res.headers['content-type'] || 'application/json';
 
                 if (contentEncoding === 'br') {
                     zlib.brotliDecompress(responseData, (err, decompressed) => {
@@ -87,10 +87,10 @@ function forwardRequestToLocalServer(requestData, inputProtocol, inputPort) {
                             console.error('[ERROR] Brotli decompression failed:', err);
                             return reject({ statusCode: 500, message: 'Brotli decompression failed' });
                         }
-                        handleDecodedResponse(res.statusCode, decompressed.toString(), resolve, reject);
+                        handleDecodedResponse(res.statusCode, decompressed.toString(), contentType, resolve, reject);
                     });
                 } else {
-                    handleDecodedResponse(res.statusCode, responseData.toString(), resolve, reject);
+                    handleDecodedResponse(res.statusCode, responseData.toString(), contentType, resolve, reject);
                 }
             });
 
@@ -157,12 +157,11 @@ if (require.main === module) {
     startTunnelize(protocol, port, tunnelId);
 }
 
-function handleDecodedResponse(statusCode, body, resolve, reject) {
-    console.log(`[DEBUG] Decoded response: ${body}`);
-
+function handleDecodedResponse(statusCode, body, contentType, resolve, reject) {
     const response = {
         statusCode: statusCode,
-        body: body
+        body: body,
+        contentType: contentType
     };
 
     if (statusCode === 404) {

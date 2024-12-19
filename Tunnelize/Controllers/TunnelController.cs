@@ -70,20 +70,24 @@ public class TunnelController : ControllerBase
                 return StatusCode(502, new { message = "No response received from WebSocket client." });
             }
 
-            if (IsJson(wsResponse))
-            {
-                var response = System.Text.Json.JsonSerializer.Deserialize<ResponseModel>(wsResponse);
-                return StatusCode(response.StatusCode, response.Body);
-            }
-            else if (IsXml(wsResponse))
-            {
-                var xmlBody = FormatXml(wsResponse);
-                return Content(xmlBody, "application/xml");
-            }
-            else
-            {
-                return StatusCode(502, new { message = "Unknown response format received from WebSocket client." });
-            }
+            var responseModel = System.Text.Json.JsonSerializer.Deserialize<ResponseModel>(wsResponse);
+            Response.Headers.Add("Content-Type", responseModel.ContentType ?? "application/json");
+            return StatusCode(responseModel.StatusCode, responseModel.Body);
+
+            //if (IsJson(wsResponse))
+            //{
+            //    var response = System.Text.Json.JsonSerializer.Deserialize<ResponseModel>(wsResponse);
+            //    return StatusCode(response.StatusCode, response.Body);
+            //}
+            //else if (IsXml(wsResponse))
+            //{
+            //    var xmlBody = FormatXml(wsResponse);
+            //    return Content(xmlBody, "application/xml");
+            //}
+            //else
+            //{
+            //    return StatusCode(502, new { message = "Unknown response format received from WebSocket client." });
+            //}
         }
         catch (OperationCanceledException)
         {
@@ -139,5 +143,7 @@ public class TunnelController : ControllerBase
         public int StatusCode { get; set; }
         [JsonPropertyName("body")]
         public string Body { get; set; }
+        [JsonPropertyName("contentType")]
+        public string ContentType { get; set; }
     }
 }
