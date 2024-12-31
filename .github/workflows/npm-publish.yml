@@ -39,8 +39,21 @@ jobs:
       - name: Increment Version
         working-directory: ./TunnelizeClient
         run: |
-          PATCH=$(echo $LATEST_VERSION | awk -F. '{print $3 + 1}')
-          NEW_VERSION="${{ vars.MAJOR }}.${{ vars.MINOR }}.$PATCH"
+          LATEST_MAJOR=$(echo $LATEST_VERSION | cut -d. -f1)
+          LATEST_MINOR=$(echo $LATEST_VERSION | cut -d. -f2)
+          LATEST_PATCH=$(echo $LATEST_VERSION | cut -d. -f3)
+
+          NEW_MAJOR="${{ vars.MAJOR }}"
+          NEW_MINOR="${{ vars.MINOR }}"
+
+          if [ "$NEW_MAJOR" -gt "$LATEST_MAJOR" ] || [ "$NEW_MINOR" -gt "$LATEST_MINOR" ]; then
+            NEW_PATCH=0
+          else
+            NEW_PATCH=$((LATEST_PATCH + 1))
+          fi
+
+          NEW_VERSION="$NEW_MAJOR.$NEW_MINOR.$NEW_PATCH"
+
           echo "New version: $NEW_VERSION"
           npm version $NEW_VERSION --no-git-tag-version
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
