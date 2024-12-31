@@ -4,9 +4,8 @@ on:
   release:
     types: [created]
   workflow_dispatch:
-  
-jobs:
 
+jobs:
   publish-npm:
     runs-on: ubuntu-latest
     environment: VARIABLES
@@ -40,7 +39,8 @@ jobs:
       - name: Increment Version
         working-directory: ./TunnelizeClient
         run: |
-          NEW_VERSION=$(echo $LATEST_VERSION | awk -F. -v OFS=. '{$NF++; print}')
+          PATCH=$(echo $LATEST_VERSION | awk -F. '{print $3 + 1}')
+          NEW_VERSION="${{ vars.MAJOR }}.${{ vars.MINOR }}.$PATCH"
           echo "New version: $NEW_VERSION"
           npm version $NEW_VERSION --no-git-tag-version
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
