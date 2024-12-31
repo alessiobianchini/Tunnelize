@@ -71,17 +71,15 @@ public class TunnelController : ControllerBase
             }
 
             var responseModel = System.Text.Json.JsonSerializer.Deserialize<ResponseModel>(wsResponse);
-            
-            if (responseModel.StatusCode == 200)
+
+            if (responseModel != null)
             {
+                Response.StatusCode = responseModel.StatusCode;
                 Response.Headers.TryAdd("Content-Type", responseModel.ContentType ?? "application/json");
                 return Content(responseModel.Body, HttpContext.Response.ContentType);
+            }
 
-            }
-            else
-            {
-                return StatusCode(responseModel.StatusCode, responseModel.Body);
-            }
+            return StatusCode(500, new { message = "Error forwarding request" });
         }
         catch (OperationCanceledException)
         {

@@ -15,13 +15,28 @@ function connectToWebSocket(protocol, port, tunnelId = null) {
     const MAX_BUFFER_SIZE = 1024 * 1024 * 5;
     let wssUrl = !!tunnelId ? `wss://${url}/ws/${tunnelId}` : `wss://${url}/ws`;
     const ws = new WebSocket(wssUrl, { maxPayload: MAX_BUFFER_SIZE });
+    let isAlive = true;
 
     ws.on('open', () => {
-        console.log('[INFO] Connection established with the proxy');
+        console.info('[INFO] Connection established with the proxy');
+        setInterval(() => {
+            console.info(`[DEBUG] Sending ping. Connection alive: ${isAlive}`);
+            if (isAlive) {
+                ws.ping();
+                isAlive = false; 
+            } else {
+                console.error('[ERROR] WebSocket connection appears to be dead. Reconnecting...');
+                ws.terminate(); 
+            }
+        }, 60000);
+    });
+
+    ws.on('pong', () => {
+        isAlive = true; 
     });
 
     ws.on('close', () => {
-        console.log('[INFO] Connection closed, retrying in 5 seconds');
+        console.info('[INFO] Connection closed, retrying in 5 seconds');
         setTimeout(() => connectToWebSocket(protocol, port, tunnelId), 5000);
     });
 
@@ -37,7 +52,7 @@ function connectToWebSocket(protocol, port, tunnelId = null) {
         } else {
             try {
                 const requestData = JSON.parse(message);
-                console.log('[INFO] Message received.');
+                console.info('[INFO] Message received.');
                 forwardRequestToLocalServer(requestData, protocol, port)
                     .then(response => {
                         ws.send(JSON.stringify(response), { fin: true });
@@ -69,7 +84,7 @@ function forwardRequestToLocalServer(requestData, inputProtocol, inputPort) {
         };
 
         const req = protocol.request(options, (res) => {
-            console.log(`[INFO] Status Code: ${res.statusCode}`);
+            console.info(`[INFO] Status Code: ${res.statusCode}`);
 
             let responseData = [];
             res.on('data', (chunk) => {
@@ -153,7 +168,7 @@ if (require.main === module) {
         process.exit(1);
     }
 
-    console.log(`[INFO] Starting tunnelize with protocol: ${protocol} and port: ${port}`);
+    console.info(`[INFO] Starting tunnelize with protocol: ${protocol} and port: ${port}`);
     startTunnelize(protocol, port, tunnelId);
 }
 
@@ -171,7 +186,7 @@ function handleDecodedResponse(statusCode, body, contentType, resolve, reject) {
         console.error(`[ERROR] HTTP error: ${statusCode}, Body: ${body}`);
         reject(response);
     } else {
-        console.log(`[INFO] Request successful with status code: ${statusCode}`);
+        console.info(`[INFO] Request successful with status code: ${statusCode}`);
         resolve(response);
     }
 }
