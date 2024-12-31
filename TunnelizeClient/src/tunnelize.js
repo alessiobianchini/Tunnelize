@@ -15,24 +15,9 @@ function connectToWebSocket(protocol, port, tunnelId = null) {
     const MAX_BUFFER_SIZE = 1024 * 1024 * 5;
     let wssUrl = !!tunnelId ? `wss://${url}/ws/${tunnelId}` : `wss://${url}/ws`;
     const ws = new WebSocket(wssUrl, { maxPayload: MAX_BUFFER_SIZE });
-    let isAlive = true;
-
+    
     ws.on('open', () => {
         console.info('[INFO] Connection established with the proxy');
-        setInterval(() => {
-            console.info(`[DEBUG] Sending ping. Connection alive: ${isAlive}`);
-            if (isAlive) {
-                ws.ping();
-                isAlive = false; 
-            } else {
-                console.error('[ERROR] WebSocket connection appears to be dead. Reconnecting...');
-                ws.terminate(); 
-            }
-        }, 60000);
-    });
-
-    ws.on('pong', () => {
-        isAlive = true; 
     });
 
     ws.on('close', () => {
@@ -46,6 +31,12 @@ function connectToWebSocket(protocol, port, tunnelId = null) {
 
     ws.on('message', (data) => {
         const message = data.toString('utf8');
+
+        if (message === 'ping') {
+            console.debug('[DEBUG] Ping received from proxy. Sending pong...');
+            ws.send('pong', { fin: true });
+            return;
+        }
 
         if (isTunnelId(message)) {
             console.log(`\n✅ Tunnel ID received: ${message}\nYou can use now https://${url}/${message}/*?param=abc`);
