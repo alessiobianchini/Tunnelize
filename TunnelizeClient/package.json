@@ -1,9 +1,15 @@
 {
 	"name": "tunnelize",
-	"version": "1.0.1",
+	"version": "1.0.0",
 	"description": "A tool to create a WebSocket tunnel for forwarding HTTP requests to a local server",
 	"main": "bin/tunnelize.js",
 	"readme": "README.md",
+	"homepage": "https://github.com/alessiobianchini/Tunnelize",
+	"bugs": "https://github.com/alessiobianchini/Tunnelize/issues",
+	"repository": {
+	  "type": "git",
+	  "url": "git+https://github.com/alessiobianchini/Tunnelize"
+	},
 	"bin": {
 		"tunnelize": "./bin/tunnelize.js"
 	},
