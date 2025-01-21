@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+const fs = require('fs');
+const path = require('path');
 const WebSocket = require('ws');
 const http = require('http');
 const https = require('https');
@@ -7,12 +9,13 @@ const process = require('process');
 const zlib = require('zlib');
 const pjson = require('../package.json');
 
-//Local development
-//process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
+// Local development
+// process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 
 const logLevels = ["debug", "info", "log", "warn", "error", "none"];
+const configFilePath = path.resolve(__dirname, '.tunnelize_config.json');
 
-let logLevel = "log";
+let logLevel = loadLogLevel();
 
 const shouldLog = (level) => {
     return logLevels.indexOf(level) >= logLevels.indexOf(logLevel);
@@ -47,11 +50,35 @@ function setLogLevel(level) {
     }
     logLevel = level;
     global.logLevel = logLevel;
+    persistLogLevel(logLevel);
     forceLog('log', `Log level set to: ${logLevel}`);
 }
 
 function forceLog(level, message, ...optionalParams) {
     _console[level] && _console[level](message, ...optionalParams);
+}
+
+function persistLogLevel(level) {
+    try {
+        const config = { logLevel: level };
+        fs.writeFileSync(configFilePath, JSON.stringify(config, null, 2));
+    } catch (error) {
+        _console.error('[ERROR] Failed to persist log level:', error.message);
+    }
+}
+
+function loadLogLevel() {
+    try {
+        if (fs.existsSync(configFilePath)) {
+            const config = JSON.parse(fs.readFileSync(configFilePath, 'utf8'));
+            if (logLevels.includes(config.logLevel)) {
+                return config.logLevel;
+            }
+        }
+    } catch (error) {
+        _console.error('[ERROR] Failed to load persisted log level:', error.message);
+    }
+    return "log";
 }
 
 function connectToWebSocket(protocol, port, tunnelId = null) {
@@ -173,7 +200,7 @@ function startTunnelize(protocol, port, tunnelId) {
 }
 
 function showHelp() {
-    forceLog('log', `\nUsage: tunnelize <protocol> <port> [tunnelId] <logLevel>\n\nOptions:\n  protocol  Either "http" or "https" (default is http)\n  port      The port number to connect to on localhost (default is 8080)\n  logLevel  Optional: Set log level (debug, info, log, warn, error, none)\n\nExamples:\n  tunnelize http 8080 debug\n  tunnelize https 443 warn\n  tunnelize loglevel debug\n`);
+    forceLog('log', `\nUsage: tunnelize <protocol> <port> [tunnelId] <logLevel>\n\nOptions:\n  protocol  Either "http" or "https" (default is http)\n  port      The port number to connect to on localhost (default is 8080)\n\nExamples:\n  tunnelize http 8080\n  tunnelize https 443\n  tunnelize loglevel debug\n`);
 }
 
 module.exports = { startTunnelize, setLogLevel };
@@ -185,15 +212,10 @@ if (require.main === module) {
         showHelp();
         process.exit(0);
     }
+
     if (args.length === 1 && args[0] === 'version') {
         console.log(`Tunnelize version: ${pjson.version}`);
         process.exit(0);
-    }
-
-    if (args.length === 1 && args[0] === 'loglevel') {
-        console.error('[ERROR] Usage: tunnelize loglevel <level>');
-        console.log(`[INFO] Valid levels are: ${logLevels.join(', ')}`);
-        process.exit(1);
     }
 
     if (args.length === 2 && args[0] === 'loglevel') {
@@ -202,7 +224,7 @@ if (require.main === module) {
     }
 
     if (args.length < 2) {
-        console.error('[ERROR] Usage: tunnelize <protocol> <port> [tunnelId] <logLevel>');
+        console.error('[ERROR] Usage: tunnelize <protocol> <port> [tunnelId]');
         showHelp();
         process.exit(1);
     }

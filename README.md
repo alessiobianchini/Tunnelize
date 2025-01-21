@@ -7,7 +7,8 @@ Tunnelize is a command-line tool that allows you to easily forward HTTP or HTTPS
 - **HTTP/HTTPS Protocol**: Supports tunneling for both HTTP and HTTPS requests.
 - **Automatic Reconnection**: If the connection is dropped, Tunnelize automatically retries.
 - **Simple CLI**: Intuitive command-line interface for fast setup and usage.
-- **Configurable Log Levels**: Dynamically adjust logging levels (e.g., debug, info, warn) for better control.
+- **Configurable Log Levels**: Dynamically adjust logging levels (debug, info, log, warn, error) for better control.
+- **Persistent Log Levels**: The log level persists across sessions.
 
 ## 📦 Installation
 
@@ -46,7 +47,12 @@ tunnelize <protocol> <port>
    tunnelize https 443
    ```
 
-3. **Show help information**
+3. **Set log level to debug**
+   ```bash
+   tunnelize loglevel debug
+   ```
+
+4. **Show help information**
    ```bash
    tunnelize help
    ```
