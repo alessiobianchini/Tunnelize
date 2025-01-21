@@ -10,12 +10,56 @@ const pjson = require('../package.json');
 //Local development
 //process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 
+const logLevels = ["debug", "info", "log", "warn", "error", "none"];
+
+let logLevel = "log";
+
+const shouldLog = (level) => {
+    return logLevels.indexOf(level) >= logLevels.indexOf(logLevel);
+};
+
+const _console = console;
+global.console = {
+    ..._console,
+    log: (message, ...optionalParams) => {
+        shouldLog("log") && _console.log(message, ...optionalParams);
+    },
+    info: (message, ...optionalParams) => {
+        shouldLog("info") && _console.info(message, ...optionalParams);
+    },
+    warn: (message, ...optionalParams) => {
+        shouldLog("warn") && _console.warn(message, ...optionalParams);
+    },
+    error: (message, ...optionalParams) => {
+        shouldLog("error") && _console.error(message, ...optionalParams);
+    },
+    debug: (message, ...optionalParams) => {
+        shouldLog("debug") && _console.debug(message, ...optionalParams);
+    },
+};
+
+global.logLevel = logLevel;
+
+function setLogLevel(level) {
+    if (!logLevels.includes(level)) {
+        forceLog('error', `[ERROR] Invalid log level: ${level}. Valid levels are: ${logLevels.join(', ')}`);
+        return;
+    }
+    logLevel = level;
+    global.logLevel = logLevel;
+    forceLog('log', `Log level set to: ${logLevel}`);
+}
+
+function forceLog(level, message, ...optionalParams) {
+    _console[level] && _console[level](message, ...optionalParams);
+}
+
 function connectToWebSocket(protocol, port, tunnelId = null) {
     const url = process.env.DEV_TUNNEL_URL || 'tunnelize.azurewebsites.net';
     const MAX_BUFFER_SIZE = 1024 * 1024 * 5;
     let wssUrl = !!tunnelId ? `wss://${url}/ws/${tunnelId}` : `wss://${url}/ws`;
     const ws = new WebSocket(wssUrl, { maxPayload: MAX_BUFFER_SIZE });
-    
+
     ws.on('open', () => {
         console.info('[INFO] Connection established with the proxy');
     });
@@ -39,11 +83,11 @@ function connectToWebSocket(protocol, port, tunnelId = null) {
         }
 
         if (isTunnelId(message)) {
-            console.log(`\n✅ Tunnel ID received: ${message}\nYou can use now https://${url}/${message}/*?param=abc`);
+            forceLog('log', `\n✅ Tunnel ID received: ${message}\nYou can use now https://${url}/${message}/*?param=abc`);
         } else {
             try {
                 const requestData = JSON.parse(message);
-                console.info('[INFO] Message received.');
+                console.debug('[DEBUG] Message received.');
                 forwardRequestToLocalServer(requestData, protocol, port)
                     .then(response => {
                         ws.send(JSON.stringify(response), { fin: true });
@@ -75,7 +119,7 @@ function forwardRequestToLocalServer(requestData, inputProtocol, inputPort) {
         };
 
         const req = protocol.request(options, (res) => {
-            console.info(`[INFO] Status Code: ${res.statusCode}`);
+            console.debug(`[DEBUG] Status Code: ${res.statusCode}`);
 
             let responseData = [];
             res.on('data', (chunk) => {
@@ -129,10 +173,10 @@ function startTunnelize(protocol, port, tunnelId) {
 }
 
 function showHelp() {
-    console.log(`\nUsage: tunnelize <protocol> <port>\n\nOptions:\n  protocol  Either "http" or "https" (default is http)\n  port      The port number to connect to on localhost (default is 8080)\n\nExamples:\n  tunnelize http 8080\n  tunnelize https 443\n`);
+    forceLog('log', `\nUsage: tunnelize <protocol> <port> [tunnelId] <logLevel>\n\nOptions:\n  protocol  Either "http" or "https" (default is http)\n  port      The port number to connect to on localhost (default is 8080)\n  logLevel  Optional: Set log level (debug, info, log, warn, error, none)\n\nExamples:\n  tunnelize http 8080 debug\n  tunnelize https 443 warn\n  tunnelize loglevel debug\n`);
 }
 
-module.exports = { startTunnelize };
+module.exports = { startTunnelize, setLogLevel };
 
 if (require.main === module) {
     const args = process.argv.slice(2);
@@ -146,8 +190,19 @@ if (require.main === module) {
         process.exit(0);
     }
 
+    if (args.length === 1 && args[0] === 'loglevel') {
+        console.error('[ERROR] Usage: tunnelize loglevel <level>');
+        console.log(`[INFO] Valid levels are: ${logLevels.join(', ')}`);
+        process.exit(1);
+    }
+
+    if (args.length === 2 && args[0] === 'loglevel') {
+        setLogLevel(args[1]);
+        process.exit(0);
+    }
+
     if (args.length < 2) {
-        console.error('[ERROR] Usage: tunnelize <protocol> <port>');
+        console.error('[ERROR] Usage: tunnelize <protocol> <port> [tunnelId] <logLevel>');
         showHelp();
         process.exit(1);
     }
@@ -159,7 +214,7 @@ if (require.main === module) {
         process.exit(1);
     }
 
-    console.info(`[INFO] Starting tunnelize with protocol: ${protocol} and port: ${port}`);
+    forceLog('log', `Starting tunnelize with protocol: ${protocol}, port: ${port}, log level: ${logLevel}`);
     startTunnelize(protocol, port, tunnelId);
 }
 
@@ -177,7 +232,7 @@ function handleDecodedResponse(statusCode, body, contentType, resolve, reject) {
         console.error(`[ERROR] HTTP error: ${statusCode}, Body: ${body}`);
         reject(response);
     } else {
-        console.info(`[INFO] Request successful with status code: ${statusCode}`);
+        console.log(`[INFO] Request successful with status code: ${statusCode}`);
         resolve(response);
     }
 }

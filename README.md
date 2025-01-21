@@ -7,6 +7,7 @@ Tunnelize is a command-line tool that allows you to easily forward HTTP or HTTPS
 - **HTTP/HTTPS Protocol**: Supports tunneling for both HTTP and HTTPS requests.
 - **Automatic Reconnection**: If the connection is dropped, Tunnelize automatically retries.
 - **Simple CLI**: Intuitive command-line interface for fast setup and usage.
+- **Configurable Log Levels**: Dynamically adjust logging levels (e.g., debug, info, warn) for better control.
 
 ## 📦 Installation
 
@@ -64,6 +65,7 @@ export DEV_TUNNEL_URL='your-proxy-url-here'
 |----------------|-----------------------------------|
 | `tunnelize http 8080` | Start a tunnel using HTTP on port 8080 |
 | `tunnelize https 443`  | Start a tunnel using HTTPS on port 443  |
+| `tunnelize loglevel <level>` | Set the log level dynamically (debug, info, log, warn, error) |
 | `tunnelize help`       | Show available commands and usage info  |
 
 ## 💻 Development
@@ -99,7 +101,7 @@ Contributions are welcome! To contribute, please:
 2. Create a new branch for your feature or bugfix.
 3. Submit a pull request with your changes.
 
-## 📄 License
+## 🔖 License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more information.
 
@@ -110,4 +112,3 @@ For questions, issues, or feature requests, feel free to open an issue on the [G
 ---
 
 > **Note:** This tool is intended for development purposes only and should not be used in production environments without proper security measures.
-
