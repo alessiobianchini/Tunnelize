@@ -30,33 +30,17 @@ jobs:
         working-directory: ./TunnelizeClient
         run: npm install
 
-      - name: Get Latest Version
+      - name: Use Release Tag as Version
         run: |
-          LATEST_VERSION=$(npm show tunnelize version)
-          echo "Latest version: $LATEST_VERSION"
-          echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_ENV
+          TAG_VERSION=${{ github.event.release.tag_name }}
+          echo "Tag version from release: $TAG_VERSION"
+          echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_ENV
 
-      - name: Increment Version
+      - name: Update Package Version
         working-directory: ./TunnelizeClient
         run: |
-          LATEST_MAJOR=$(echo $LATEST_VERSION | cut -d. -f1)
-          LATEST_MINOR=$(echo $LATEST_VERSION | cut -d. -f2)
-          LATEST_PATCH=$(echo $LATEST_VERSION | cut -d. -f3)
-
-          NEW_MAJOR="${{ vars.MAJOR }}"
-          NEW_MINOR="${{ vars.MINOR }}"
-
-          if [ "$NEW_MAJOR" -gt "$LATEST_MAJOR" ] || [ "$NEW_MINOR" -gt "$LATEST_MINOR" ]; then
-            NEW_PATCH=0
-          else
-            NEW_PATCH=$((LATEST_PATCH + 1))
-          fi
-
-          NEW_VERSION="$NEW_MAJOR.$NEW_MINOR.$NEW_PATCH"
-
-          echo "New version: $NEW_VERSION"
-          npm version $NEW_VERSION --no-git-tag-version
-          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          npm version $TAG_VERSION --no-git-tag-version
+          echo "Updated package version to $TAG_VERSION"
 
       - name: Minify project files
         working-directory: ./TunnelizeClient
