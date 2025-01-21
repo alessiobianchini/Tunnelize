@@ -110,7 +110,7 @@ function connectToWebSocket(protocol, port, tunnelId = null) {
         }
 
         if (isTunnelId(message)) {
-            forceLog('log', `\n✅ Tunnel ID received: ${message}\nYou can use now https://${url}/${message}/*?param=abc`);
+            forceLog('log', `\n✅ Tunnel ID received: ${message}\nAll routes and query parameters are forwarded. Access it here: https://${url}/${message}/*`);
         } else {
             try {
                 const requestData = JSON.parse(message);
