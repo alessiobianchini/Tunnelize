@@ -5,11 +5,21 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddSingleton<TunnelManager>();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
+
 
 var app = builder.Build();
 
 app.UseWebSockets();
-
+app.UseCors("AllowAll");
 app.MapControllers();
 
 app.Use(async (context, next) =>
