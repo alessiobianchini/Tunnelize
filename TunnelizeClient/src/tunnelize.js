@@ -229,6 +229,19 @@ function filterRequestHeaders(headers) {
 }
 
 function normalizeResponseHeaders(headers) {
+    const blockedHeaders = new Set([
+        'connection',
+        'keep-alive',
+        'proxy-authenticate',
+        'proxy-authorization',
+        'te',
+        'trailer',
+        'transfer-encoding',
+        'upgrade',
+        'content-encoding',
+        'content-length'
+    ]);
+
     const normalized = {};
 
     for (const [key, value] of Object.entries(headers)) {
@@ -236,7 +249,12 @@ function normalizeResponseHeaders(headers) {
             continue;
         }
 
-        normalized[key.toLowerCase()] = Array.isArray(value) ? value.join(', ') : `${value}`;
+        const normalizedKey = key.toLowerCase();
+        if (blockedHeaders.has(normalizedKey)) {
+            continue;
+        }
+
+        normalized[normalizedKey] = Array.isArray(value) ? value.join(', ') : `${value}`;
     }
 
     return normalized;

@@ -7,6 +7,19 @@ using Microsoft.AspNetCore.Mvc;
 public class TunnelController : ControllerBase
 {
     private readonly TunnelManager _tunnelManager;
+    private static readonly HashSet<string> BlockedProxyResponseHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+        "content-type",
+        "content-length"
+    };
 
     public TunnelController(TunnelManager tunnelManager)
     {
@@ -123,8 +136,7 @@ public class TunnelController : ControllerBase
         {
             foreach (var header in responseModel.Headers)
             {
-                if (string.Equals(header.Key, "content-type", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(header.Key, "content-length", StringComparison.OrdinalIgnoreCase))
+                if (BlockedProxyResponseHeaders.Contains(header.Key))
                 {
                     continue;
                 }
