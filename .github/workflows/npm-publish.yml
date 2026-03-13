@@ -35,6 +35,25 @@ jobs:
         working-directory: ./TunnelizeClient
         run: npm install
 
+      - name: Verify NPM authentication
+        working-directory: ./TunnelizeClient
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "NPM_TOKEN is not set."
+            exit 1
+          fi
+
+          NPM_USER=$(npm whoami)
+          echo "Authenticated as: $NPM_USER"
+          npm owner ls tunnelize
+
+          if ! npm owner ls tunnelize | grep -q "^$NPM_USER "; then
+            echo "Authenticated user '$NPM_USER' is not an owner of 'tunnelize'."
+            exit 1
+          fi
+
       - name: Resolve package version
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
