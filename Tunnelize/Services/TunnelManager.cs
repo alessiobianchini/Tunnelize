@@ -1,181 +1,270 @@
-﻿using System;
+using System.Buffers;
+using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
+using System.Threading.Channels;
 
 public class TunnelManager
 {
-    private readonly Dictionary<string, WebSocket> _tunnels = new();
-    private readonly Dictionary<string, DateTime> _lastActivityTracker = new(); // Track last activity per tunnel
+    private readonly ConcurrentDictionary<string, TunnelSession> _tunnels = new();
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan KeepAliveCheckInterval = TimeSpan.FromSeconds(30);
 
     public async Task HandleTunnelConnection(string tunnelId, WebSocket webSocket)
     {
         Console.WriteLine($"[INFO] Connection established for tunnel: {tunnelId}");
 
-        if (!_tunnels.ContainsKey(tunnelId))
+        var session = new TunnelSession(tunnelId, webSocket);
+
+        if (_tunnels.TryGetValue(tunnelId, out var existing))
         {
-            _tunnels[tunnelId] = webSocket;
-            _lastActivityTracker[tunnelId] = DateTime.UtcNow;
+            await existing.CloseAsync("Replaced by a new client connection");
+            _tunnels.TryRemove(new KeyValuePair<string, TunnelSession>(tunnelId, existing));
         }
 
-        var buffer = new byte[1024 * 1024]; 
-        var cts = new CancellationTokenSource();
-        var keepAliveInterval = TimeSpan.FromMinutes(20);
-
-        _ = Task.Run(async () =>
+        if (!_tunnels.TryAdd(tunnelId, session))
         {
-            while (webSocket.State == WebSocketState.Open)
-            {
-                try
-                {
-                    if (_lastActivityTracker.ContainsKey(tunnelId) && DateTime.UtcNow - _lastActivityTracker[tunnelId] >= keepAliveInterval)
-                    {
-                        Console.WriteLine($"[DEBUG] No activity for 5 minutes. Sending ping to client for tunnel {tunnelId}");
-                        await webSocket.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes("ping")), WebSocketMessageType.Text, true, CancellationToken.None);
-
-                        try
-                        {
-                            while (true)
-                            {
-                                var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token);
-
-                                if (result.MessageType == WebSocketMessageType.Close)
-                                {
-                                    await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Client closed connection", CancellationToken.None);
-                                    throw new Exception($"WebSocket connection closed by client for tunnel {tunnelId}");
-                                }
-
-                                if (result.MessageType == WebSocketMessageType.Text)
-                                {
-                                    var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-
-                                    if (message == "pong")
-                                    {
-                                        Console.WriteLine($"[DEBUG] Pong received from client for tunnel {tunnelId}");
-                                    }
-                                    else
-                                    {
-                                        Console.WriteLine($"[DEBUG] Received message for tunnel {tunnelId}: {message}");
-                                    }
-
-                                    if (_lastActivityTracker.ContainsKey(tunnelId))
-                                    {
-                                        _lastActivityTracker[tunnelId] = DateTime.UtcNow;
-                                    }
-                                }
-
-                                if (result.EndOfMessage)
-                                {
-                                    break;
-                                }
-                            }
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            throw new Exception("Timeout while waiting for pong from WebSocket client.");
-                        }
-                    }
-                    await Task.Delay(TimeSpan.FromSeconds(30), cts.Token); 
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[ERROR] Ping failed for tunnel {tunnelId}: {ex.Message}");
-                    break;
-                }
-            }
-        });
+            await session.CloseAsync("Unable to register tunnel session");
+            throw new InvalidOperationException($"Unable to register tunnel {tunnelId}.");
+        }
 
         try
         {
-            while (webSocket.State == WebSocketState.Open)
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(session.LifetimeToken);
+            var receiveTask = ReceiveLoopAsync(session, linkedCts.Token);
+            var keepAliveTask = KeepAliveLoopAsync(session, linkedCts.Token);
+
+            await receiveTask;
+            linkedCts.Cancel();
+
+            try
             {
+                await keepAliveTask;
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[ERROR] Tunnel error {tunnelId}: {ex.Message}");
+            catch (OperationCanceledException)
+            {
+                // expected during shutdown
+            }
         }
         finally
         {
-            cts.Cancel(); 
-
-            if (_tunnels.ContainsKey(tunnelId))
+            if (_tunnels.TryGetValue(tunnelId, out var current) && ReferenceEquals(current, session))
             {
-                _tunnels.Remove(tunnelId);
-                Console.WriteLine($"[INFO] Tunnel {tunnelId} removed.");
+                _tunnels.TryRemove(new KeyValuePair<string, TunnelSession>(tunnelId, session));
             }
 
-            if (_lastActivityTracker.ContainsKey(tunnelId))
-            {
-                _lastActivityTracker.Remove(tunnelId);
-            }
+            await session.CloseAsync("Tunnel connection closed");
+            Console.WriteLine($"[INFO] Tunnel {tunnelId} removed.");
         }
     }
 
-    public async Task ForwardRequestToClient(string tunnelId, string message)
+    public async Task<bool> TryCloseTunnelAsync(string tunnelId, string reason = "Tunnel closed by API request")
     {
-        if (!_tunnels.ContainsKey(tunnelId))
+        if (!_tunnels.TryGetValue(tunnelId, out var session))
         {
-            throw new Exception($"Tunnel {tunnelId} not found.");
+            return false;
         }
 
-        var webSocket = _tunnels[tunnelId];
-        var buffer = Encoding.UTF8.GetBytes(message);
-
-        await webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
-
-        if (_lastActivityTracker.ContainsKey(tunnelId))
-        {
-            _lastActivityTracker[tunnelId] = DateTime.UtcNow;
-        }
+        _tunnels.TryRemove(new KeyValuePair<string, TunnelSession>(tunnelId, session));
+        await session.CloseAsync(reason);
+        Console.WriteLine($"[INFO] Tunnel {tunnelId} closed by request.");
+        return true;
     }
 
-    public async Task<string> ForwardRequestToWSClient(string tunnelId, string message)
+    public async Task<string> ForwardRequestToWSClient(string tunnelId, string message, CancellationToken cancellationToken = default)
     {
-        if (!_tunnels.ContainsKey(tunnelId))
+        if (!_tunnels.TryGetValue(tunnelId, out var session))
         {
-            throw new Exception($"Tunnel {tunnelId} not found.");
+            throw new KeyNotFoundException($"Tunnel {tunnelId} not found.");
         }
 
-        var webSocket = _tunnels[tunnelId];
-        var buffer = Encoding.UTF8.GetBytes(message);
-
-        await webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
-
-        if (_lastActivityTracker.ContainsKey(tunnelId))
-        {
-            _lastActivityTracker[tunnelId] = DateTime.UtcNow;
-        }
-
-        var responseBuffer = new byte[1024 * 1024 * 5];
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        var completeResponse = new List<byte>();
+        await session.RequestLock.WaitAsync(cancellationToken);
 
         try
         {
-            while (true)
+            if (session.WebSocket.State != WebSocketState.Open)
             {
-                var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(responseBuffer), cts.Token);
+                throw new InvalidOperationException($"Tunnel {tunnelId} is not connected.");
+            }
+
+            var buffer = Encoding.UTF8.GetBytes(message);
+            await session.WebSocket.SendAsync(buffer, WebSocketMessageType.Text, true, cancellationToken);
+            session.MarkActivity();
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, session.LifetimeToken);
+            timeoutCts.CancelAfter(RequestTimeout);
+
+            try
+            {
+                var response = await session.IncomingMessages.Reader.ReadAsync(timeoutCts.Token);
+                session.MarkActivity();
+                return response;
+            }
+            catch (ChannelClosedException)
+            {
+                throw new InvalidOperationException($"Tunnel {tunnelId} was closed while waiting for response.");
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && !session.LifetimeToken.IsCancellationRequested)
+            {
+                throw new TimeoutException("Timeout while waiting for response from WebSocket client.");
+            }
+        }
+        finally
+        {
+            session.RequestLock.Release();
+        }
+    }
+
+    private static async Task ReceiveLoopAsync(TunnelSession session, CancellationToken cancellationToken)
+    {
+        var receiveBuffer = new byte[64 * 1024];
+        var messageBuffer = new ArrayBufferWriter<byte>();
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && session.WebSocket.State == WebSocketState.Open)
+            {
+                var result = await session.WebSocket.ReceiveAsync(receiveBuffer, cancellationToken);
 
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
-                    await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Client closed connection", CancellationToken.None);
-                    throw new Exception($"WebSocket connection closed by client for tunnel {tunnelId}");
-                }
-
-                completeResponse.AddRange(responseBuffer.Take(result.Count));
-
-                if (result.EndOfMessage)
-                {
+                    Console.WriteLine($"[INFO] Client closed tunnel {session.TunnelId}.");
                     break;
                 }
+
+                if (result.MessageType != WebSocketMessageType.Text)
+                {
+                    continue;
+                }
+
+                messageBuffer.Write(receiveBuffer.AsSpan(0, result.Count));
+
+                if (!result.EndOfMessage)
+                {
+                    continue;
+                }
+
+                var message = Encoding.UTF8.GetString(messageBuffer.WrittenSpan);
+                messageBuffer.Clear();
+
+                session.MarkActivity();
+
+                if (string.Equals(message, "pong", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine($"[DEBUG] Pong received for tunnel {session.TunnelId}.");
+                    continue;
+                }
+
+                await session.IncomingMessages.Writer.WriteAsync(message, cancellationToken);
             }
         }
         catch (OperationCanceledException)
         {
-            throw new Exception("Timeout while waiting for response from WebSocket client.");
+            // expected during shutdown
+        }
+        catch (WebSocketException ex)
+        {
+            Console.WriteLine($"[ERROR] Receive loop failed for tunnel {session.TunnelId}: {ex.Message}");
+        }
+        finally
+        {
+            session.IncomingMessages.Writer.TryComplete();
+        }
+    }
+
+    private static async Task KeepAliveLoopAsync(TunnelSession session, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && session.WebSocket.State == WebSocketState.Open)
+            {
+                await Task.Delay(KeepAliveCheckInterval, cancellationToken);
+
+                if (session.GetInactivityDuration() < KeepAliveInterval)
+                {
+                    continue;
+                }
+
+                await session.WebSocket.SendAsync(Encoding.UTF8.GetBytes("ping"), WebSocketMessageType.Text, true, cancellationToken);
+                Console.WriteLine($"[DEBUG] Sent ping to tunnel {session.TunnelId}.");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // expected during shutdown
+        }
+        catch (WebSocketException ex)
+        {
+            Console.WriteLine($"[ERROR] Ping failed for tunnel {session.TunnelId}: {ex.Message}");
+        }
+    }
+
+    private sealed class TunnelSession
+    {
+        private int _isClosed;
+        private long _lastActivityTicks;
+
+        public TunnelSession(string tunnelId, WebSocket webSocket)
+        {
+            TunnelId = tunnelId;
+            WebSocket = webSocket;
+            RequestLock = new SemaphoreSlim(1, 1);
+            IncomingMessages = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
+            {
+                SingleWriter = true,
+                SingleReader = true
+            });
+            LifetimeCts = new CancellationTokenSource();
+            _lastActivityTicks = DateTime.UtcNow.Ticks;
         }
 
-        var jsonResponse = Encoding.UTF8.GetString(completeResponse.ToArray());
-        return jsonResponse;
+        public string TunnelId { get; }
+        public WebSocket WebSocket { get; }
+        public SemaphoreSlim RequestLock { get; }
+        public Channel<string> IncomingMessages { get; }
+        private CancellationTokenSource LifetimeCts { get; }
+
+        public CancellationToken LifetimeToken => LifetimeCts.Token;
+
+        public void MarkActivity()
+        {
+            Interlocked.Exchange(ref _lastActivityTicks, DateTime.UtcNow.Ticks);
+        }
+
+        public TimeSpan GetInactivityDuration()
+        {
+            var lastActivity = new DateTime(Interlocked.Read(ref _lastActivityTicks), DateTimeKind.Utc);
+            return DateTime.UtcNow - lastActivity;
+        }
+
+        public async Task CloseAsync(string reason)
+        {
+            if (Interlocked.Exchange(ref _isClosed, 1) != 0)
+            {
+                return;
+            }
+
+            if (!LifetimeCts.IsCancellationRequested)
+            {
+                LifetimeCts.Cancel();
+            }
+
+            IncomingMessages.Writer.TryComplete();
+
+            if (WebSocket.State == WebSocketState.Open || WebSocket.State == WebSocketState.CloseReceived)
+            {
+                try
+                {
+                    await WebSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, reason, CancellationToken.None);
+                }
+                catch
+                {
+                    // ignore close failures during cleanup
+                }
+            }
+
+            LifetimeCts.Dispose();
+        }
     }
 }

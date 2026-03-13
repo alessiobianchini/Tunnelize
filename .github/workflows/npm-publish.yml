@@ -4,6 +4,11 @@ on:
   release:
     types: [created]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional version override (e.g. 2.3.0 or v2.3.0)."
+        required: false
+        type: string
 
 jobs:
   publish-npm:
@@ -19,7 +24,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           registry-url: https://registry.npmjs.org/
           always-auth: true
 
@@ -30,25 +35,38 @@ jobs:
         working-directory: ./TunnelizeClient
         run: npm install
 
-      - name: Use Release Tag as Version
+      - name: Resolve package version
         run: |
-          TAG_VERSION=${{ github.event.release.tag_name }}
-          echo "Tag version from release: $TAG_VERSION"
-          echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_ENV
+          if [ "${{ github.event_name }}" = "release" ]; then
+            RAW_VERSION="${{ github.event.release.tag_name }}"
+          elif [ -n "${{ inputs.version }}" ]; then
+            RAW_VERSION="${{ inputs.version }}"
+          else
+            RAW_VERSION=$(node -p "require('./TunnelizeClient/package.json').version")
+          fi
+
+          VERSION="${RAW_VERSION#v}"
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: $RAW_VERSION"
+            exit 1
+          fi
+
+          echo "Using version: $VERSION"
+          echo "PACKAGE_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Update Package Version
         working-directory: ./TunnelizeClient
         run: |
-          npm version $TAG_VERSION --no-git-tag-version
-          echo "Updated package version to $TAG_VERSION"
+          npm version "$PACKAGE_VERSION" --no-git-tag-version
+          echo "Updated package version to $PACKAGE_VERSION"
 
-      - name: Minify project files
+      - name: Publish dry-run
         working-directory: ./TunnelizeClient
-        run: npx terser ./src/tunnelize.js --output ./bin/tunnelize.js --compress --mangle
+        run: npm publish --access public --dry-run
 
       - name: Publish to NPM
         working-directory: ./TunnelizeClient
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          DEV_TUNNEL_URL: "${{ secrets.DEV_TUNNEL_URL }}"
-        run: npm publish --access public --no-git-checks
+        run: npm publish --access public

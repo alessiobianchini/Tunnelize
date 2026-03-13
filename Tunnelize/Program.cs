@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,76 +16,82 @@ builder.Services.AddCors(options =>
     });
 });
 
-
 var app = builder.Build();
 
-app.UseWebSockets();
+app.UseWebSockets(new WebSocketOptions
+{
+    KeepAliveInterval = TimeSpan.FromSeconds(30)
+});
+
 app.UseCors("AllowAll");
-app.MapControllers();
 
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path.StartsWithSegments("/ws"))
-    {
-        if (context.WebSockets.IsWebSocketRequest)
-        {
-            var tunnelManager = context.RequestServices.GetRequiredService<TunnelManager>();
-            var tunnelId = GetTunnelId(context.Request.Path.Value);
-            if (tunnelId == null)
-            {
-                tunnelId = GenerateRandomTunnelId();
-            }
-            var webSocket = await context.WebSockets.AcceptWebSocketAsync();
-            byte[] buffer = Encoding.UTF8.GetBytes(tunnelId);
-            await webSocket.SendAsync(buffer, WebSocketMessageType.Text, true, CancellationToken.None);
-
-            await tunnelManager.HandleTunnelConnection(tunnelId, webSocket);
-        }
-        else
-        {
-            context.Response.StatusCode = 400;
-        }
-    }
-    else
+    if (!context.Request.Path.StartsWithSegments("/ws"))
     {
         await next();
+        return;
     }
+
+    if (!context.WebSockets.IsWebSocketRequest)
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await context.Response.WriteAsync("Expected a WebSocket request.");
+        return;
+    }
+
+    var tunnelManager = context.RequestServices.GetRequiredService<TunnelManager>();
+    var requestedTunnelId = GetTunnelId(context.Request.Path.Value);
+    var tunnelId = IsValidTunnelId(requestedTunnelId) ? requestedTunnelId! : GenerateRandomTunnelId();
+
+    using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+    var buffer = Encoding.UTF8.GetBytes(tunnelId);
+    await webSocket.SendAsync(buffer, WebSocketMessageType.Text, true, context.RequestAborted);
+
+    await tunnelManager.HandleTunnelConnection(tunnelId, webSocket);
 });
+
+app.MapControllers();
 
 app.Run();
 
-static string GetTunnelId(string path)
+static string? GetTunnelId(string? path)
 {
-    string[] segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-
-    if (segments.Length > 1)
+    if (string.IsNullOrWhiteSpace(path))
     {
-        return segments[1]; 
+        return null;
+    }
+
+    var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+    if (segments.Length >= 2)
+    {
+        return segments[1];
     }
 
     return null;
 }
 
+static bool IsValidTunnelId(string? tunnelId)
+{
+    if (string.IsNullOrWhiteSpace(tunnelId) || tunnelId.Length != 10)
+    {
+        return false;
+    }
+
+    foreach (var c in tunnelId)
+    {
+        if (!char.IsLetterOrDigit(c))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static string GenerateRandomTunnelId()
 {
     const string AllowedChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    Random rnd = new Random();
-    int count = 10;
-
-    char[] chars = new char[10];
-    int setLength = AllowedChars.Length;
-
-    while (count-- > 0)
-    {
-
-        for (int i = 0; i < 10; ++i)
-        {
-            chars[i] = AllowedChars[rnd.Next(setLength)];
-        }
-
-    }
-
-    string randomString = new string(chars, 0, 10);
-
-    return randomString;
+    return RandomNumberGenerator.GetString(AllowedChars, 10);
 }

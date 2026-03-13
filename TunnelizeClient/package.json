@@ -2,16 +2,16 @@
 	"name": "tunnelize",
 	"version": "1.0.0",
 	"description": "A tool to create a WebSocket tunnel for forwarding HTTP requests to a local server",
-	"main": "bin/tunnelize.js",
+	"main": "src/tunnelize.js",
 	"readme": "README.md",
 	"homepage": "https://github.com/alessiobianchini/Tunnelize",
 	"bugs": "https://github.com/alessiobianchini/Tunnelize/issues",
 	"repository": {
 	  "type": "git",
-	  "url": "git+https://github.com/alessiobianchini/Tunnelize"
+	  "url": "git+https://github.com/alessiobianchini/Tunnelize.git"
 	},
 	"bin": {
-		"tunnelize": "./bin/tunnelize.js"
+		"tunnelize": "src/tunnelize.js"
 	},
 	"scripts": {
 		"version-patch": "npm version patch --no-git-tag-version",
@@ -26,9 +26,10 @@
 	"author": "Alessio Bianchini <alessio.bianchini@doit.it> (https://github.com/alessiobianchini)",
 	"license": "MIT",
 	"dependencies": {
-		"ws": "^8.13.0"
+		"ws": "^8.19.0"
 	},
 	"devDependencies": {
-		"terser": "^5.37.0"
-	}
+		"terser": "^5.46.0"
+	},
+	"packageManager": "pnpm@10.10.0"
 }

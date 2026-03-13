@@ -1,14 +1,8 @@
-# Tunnelize
+# Tunnelize CLI
 
-A CLI tool to create a WebSocket tunnel for forwarding HTTP/HTTPS requests to a local server.
+CLI that opens a WebSocket tunnel and forwards remote HTTP requests to your local app.
 
-## Overview
-
-Tunnelize helps developers quickly create a tunnel to expose their local development server. It's lightweight, fast, and easy to use, making it ideal for testing APIs, webhooks, or local applications.
-
-## Installation
-
-Install globally using npm:
+## Install
 
 ```bash
 npm install -g tunnelize
@@ -16,37 +10,33 @@ npm install -g tunnelize
 
 ## Usage
 
-Run the CLI tool by providing the host and port:
-
 ```bash
-tunnelize <host> <port>
+tunnelize <protocol> <port> [tunnelId]
 ```
 
-Example:
+- `protocol`: `http` or `https`
+- `port`: local port to forward to (1-65535)
+- `tunnelId` (optional): reuse an existing tunnel id
+
+Examples:
 
 ```bash
-tunnelize localhost 8080
+tunnelize http 8080
+tunnelize https 443
+tunnelize http 3000 abc123def4
 ```
 
-### Default Behavior:
-- Assumes HTTP for the protocol unless specified.
-- For HTTPS:
-  ```bash
-  tunnelize https localhost 8080
-  ```
+## Other commands
 
-## More Information
+```bash
+tunnelize help
+tunnelize version
+tunnelize loglevel debug
+```
 
-For additional documentation, examples, and source code, visit the [Tunnelize GitHub repository](https://github.com/alessiobianchini/Tunnelize).
+Supported log levels: `debug`, `info`, `log`, `warn`, `error`, `none`.
 
----
+## Configuration
 
-## License
-
-This project is licensed under the MIT License.
-
----
-
-## Author
-
-Developed by [Alessio Bianchini](https://github.com/alessiobianchini).
+- `DEV_TUNNEL_URL`: override the default proxy host (`tunnelize.azurewebsites.net`)
+- Log level is persisted in `~/.tunnelize_config.json`

@@ -1,6 +1,6 @@
-using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Xml.Linq;
+using Microsoft.AspNetCore.Mvc;
 
 [ApiController]
 [Route("")]
@@ -20,97 +20,175 @@ public class TunnelController : ControllerBase
     }
 
     [HttpPost("create")]
+    [HttpPost("tunnels")]
     public IActionResult CreateTunnel([FromQuery] string tunnelId)
     {
-        if (string.IsNullOrEmpty(tunnelId))
+        if (string.IsNullOrWhiteSpace(tunnelId))
+        {
             return BadRequest("TunnelId is mandatory");
+        }
 
         return Ok(new { message = "Tunnel created!", tunnelId });
     }
 
     [HttpDelete("{tunnelId}")]
-    public IActionResult CloseTunnel(string tunnelId)
+    [HttpDelete("tunnels/{tunnelId}")]
+    public async Task<IActionResult> CloseTunnel(string tunnelId)
     {
+        var closed = await _tunnelManager.TryCloseTunnelAsync(tunnelId, "Tunnel closed from API");
+
+        if (!closed)
+        {
+            return NotFound(new { message = "Tunnel not found", tunnelId });
+        }
+
         return Ok(new { message = "Tunnel closed!", tunnelId });
     }
 
-    [HttpGet("{tunnelId}/{*routes}")]
-    [HttpPost("{tunnelId}/{*routes}")]
-    public async Task<IActionResult> ProxyRequest(string tunnelId, string routes)
+    [AcceptVerbs("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD")]
+    [Route("{tunnelId}/{*routePath}")]
+    public async Task<IActionResult> ProxyRequest(string tunnelId, string? routePath)
     {
         var method = HttpContext.Request.Method;
-        var queryString = HttpContext.Request.QueryString;
+        var queryString = HttpContext.Request.QueryString.ToString();
+        var requestBody = await ReadRequestBodyAsync(HttpContext.Request);
 
-        string requestBody = string.Empty;
-        if (method == "POST")
-        {
-            using var reader = new StreamReader(HttpContext.Request.Body);
-            requestBody = await reader.ReadToEndAsync();
-        }
-
-        var headers = GetAllHeaders(HttpContext.Request.Headers);
-
-        var requestData = new
+        var requestData = new ProxyRequestModel
         {
             Method = method,
-            QueryString = queryString.ToString(),
+            QueryString = queryString,
             Body = requestBody,
-            Headers = headers,
-            Route = $"/{routes}"
+            Headers = GetAllHeaders(HttpContext.Request.Headers),
+            Route = $"/{routePath ?? string.Empty}"
         };
 
-        var message = System.Text.Json.JsonSerializer.Serialize(requestData);
+        var message = JsonSerializer.Serialize(requestData);
 
         try
         {
-            var wsResponse = await _tunnelManager.ForwardRequestToWSClient(tunnelId, message);
+            var wsResponse = await _tunnelManager.ForwardRequestToWSClient(tunnelId, message, HttpContext.RequestAborted);
 
             if (string.IsNullOrWhiteSpace(wsResponse))
             {
-                return StatusCode(502, new { message = "No response received from WebSocket client." });
+                return StatusCode(StatusCodes.Status502BadGateway, new { message = "No response received from WebSocket client." });
             }
 
-            var responseModel = System.Text.Json.JsonSerializer.Deserialize<ResponseModel>(wsResponse);
+            var responseModel = JsonSerializer.Deserialize<ResponseModel>(wsResponse);
 
-            if (responseModel != null)
+            if (responseModel is null)
             {
-                Response.StatusCode = responseModel.StatusCode;
-                Response.Headers.TryAdd("Content-Type", responseModel.ContentType ?? "application/json");
-                return Content(responseModel.Body, HttpContext.Response.ContentType);
+                return StatusCode(StatusCodes.Status502BadGateway, new { message = "Invalid response received from WebSocket client." });
             }
 
-            return StatusCode(500, new { message = "Error forwarding request" });
+            return BuildProxyResponse(responseModel);
         }
-        catch (OperationCanceledException)
+        catch (KeyNotFoundException)
         {
-            return StatusCode(504, new { message = "Gateway Timeout", error = "Timeout while waiting for response from WebSocket client." });
+            return NotFound(new { message = "Tunnel not found", tunnelId });
+        }
+        catch (TimeoutException)
+        {
+            return StatusCode(StatusCodes.Status504GatewayTimeout, new { message = "Gateway timeout while waiting for WebSocket client response." });
+        }
+        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            return StatusCode(499, new { message = "Client closed request." });
+        }
+        catch (JsonException ex)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, new { message = "Malformed response from WebSocket client.", error = ex.Message });
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { message = "Error forwarding request", error = ex.Message });
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Error forwarding request", error = ex.Message });
         }
     }
 
-
-    private Dictionary<string, string> GetAllHeaders(IHeaderDictionary headers)
+    private IActionResult BuildProxyResponse(ResponseModel responseModel)
     {
-        Dictionary<string, string> requestHeaders = new Dictionary<string, string>();
+        Response.StatusCode = responseModel.StatusCode is >= 100 and <= 599
+            ? responseModel.StatusCode
+            : StatusCodes.Status502BadGateway;
 
-        foreach (var header in headers)
+        if (!string.IsNullOrWhiteSpace(responseModel.ContentType))
         {
-            requestHeaders.Add(header.Key, header.Value);
+            Response.ContentType = responseModel.ContentType;
+        }
+        else
+        {
+            Response.ContentType = "application/json";
         }
 
-        return requestHeaders;
+        if (responseModel.Headers is not null)
+        {
+            foreach (var header in responseModel.Headers)
+            {
+                if (string.Equals(header.Key, "content-type", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(header.Key, "content-length", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                Response.Headers[header.Key] = header.Value;
+            }
+        }
+
+        if (HttpMethods.IsHead(HttpContext.Request.Method))
+        {
+            return new EmptyResult();
+        }
+
+        return Content(responseModel.Body ?? string.Empty, Response.ContentType);
     }
 
-    public class ResponseModel
+    private static Dictionary<string, string> GetAllHeaders(IHeaderDictionary headers)
+    {
+        return headers.ToDictionary(
+            header => header.Key,
+            header => header.Value.ToString(),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static async Task<string> ReadRequestBodyAsync(HttpRequest request)
+    {
+        if (!CanHaveBody(request.Method) || request.ContentLength is 0)
+        {
+            return string.Empty;
+        }
+
+        using var reader = new StreamReader(request.Body);
+        return await reader.ReadToEndAsync();
+    }
+
+    private static bool CanHaveBody(string method)
+    {
+        return HttpMethods.IsPost(method)
+            || HttpMethods.IsPut(method)
+            || HttpMethods.IsPatch(method)
+            || HttpMethods.IsDelete(method);
+    }
+
+    private sealed class ProxyRequestModel
+    {
+        public string Method { get; set; } = string.Empty;
+        public string QueryString { get; set; } = string.Empty;
+        public string Body { get; set; } = string.Empty;
+        public Dictionary<string, string> Headers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public string Route { get; set; } = string.Empty;
+    }
+
+    public sealed class ResponseModel
     {
         [JsonPropertyName("statusCode")]
         public int StatusCode { get; set; }
+
         [JsonPropertyName("body")]
-        public string Body { get; set; }
+        public string? Body { get; set; }
+
         [JsonPropertyName("contentType")]
-        public string ContentType { get; set; }
+        public string? ContentType { get; set; }
+
+        [JsonPropertyName("headers")]
+        public Dictionary<string, string>? Headers { get; set; }
     }
 }
