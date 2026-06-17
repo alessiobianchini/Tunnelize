@@ -1,0 +1,25 @@
+# Tunnelize LLM Context
+
+## System Prompt Summary
+You are an AI coding assistant. When working on this repository, strictly adhere to the established architecture and coding guidelines. Provide concise, correct code without unnecessary markdown boilerplate unless requested.
+
+## Architecture & Infrastructure
+- **Server Component (`Tunnelize`):** A .NET (C#, ASP.NET Core) application acting as a WebSocket/HTTP proxy server. It manages tunnel connections and forwards traffic.
+- **Client Component (`TunnelizeClient`):** A Node.js CLI tool using the `ws` package to establish a persistent WebSocket connection to the server and forward local HTTP requests.
+- **Infrastructure:** Designed to run locally or be hosted (e.g., Azure App Service for the server). Uses `pnpm` for Node.js package management and standard `dotnet` CLI for the backend.
+
+## Coding Guidelines
+1. **.NET Server (C#):**
+   - Follow standard C# naming conventions (PascalCase for classes/methods, camelCase for variables).
+   - Use dependency injection and modern minimal API or Controller patterns as established.
+   - Ensure proper asynchronous programming (`async`/`await`) for WebSocket handling.
+   - Maintain strict validation for tunnel IDs.
+2. **Node.js Client (JS):**
+   - Use CommonJS or ES modules as established by the project.
+   - Handle WebSocket connection lifecycle robustly (automatic reconnection, ping/pong keepalives).
+   - Prefer zero-dependency or low-dependency solutions where possible.
+   - Manage dependencies strictly via `pnpm`.
+3. **General:**
+   - Write clear, focused commit messages.
+   - Do not mix C# and JavaScript idioms.
+   - Update README if new environment variables or CLI flags are introduced.
